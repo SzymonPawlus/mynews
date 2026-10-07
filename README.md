@@ -9,7 +9,7 @@ Personal daily news briefing by email: AI progress (big picture), economy (Polan
 3. **select**: one Claude call that sees only headlines and picks the stories (~6K tokens).
 4. `enrich` fetches article text for the picked stories only (no LLM).
 5. **write**: one Claude call that writes the briefing (~15K in / ~5K out).
-6. Render HTML and Markdown, then email.
+6. Render HTML and Markdown, then email it through a local send-only Postfix with DKIM, or any SMTP relay.
 
 Personalisation lives in `config/profile.yaml` and in two tables that grow over time:
 
@@ -50,6 +50,7 @@ Full step-by-step guide: [DEPLOY.md](DEPLOY.md). Short version:
 ```
 git clone https://github.com/SzymonPawlus/mynews.git ~/mynews && cd ~/mynews && ./deploy/install.sh
 claude setup-token            # paste into .env as CLAUDE_CODE_OAUTH_TOKEN
-$EDITOR .env                  # Gmail app password etc.
+sudo ./deploy/mail-setup.sh news.<your-domain>   # send-only Postfix + DKIM, prints DNS records
+$EDITOR .env
 systemctl --user start mynews.service && journalctl --user -u mynews -f
 ```
