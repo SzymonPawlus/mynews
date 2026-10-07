@@ -1,0 +1,188 @@
+# Each source:
+#   name     unique id
+#   section  ai | science | economy | world
+#   kind     rss | guardian | wikipedia_current_events
+#   url      feed URL (rss)
+#   weight   0..1, editorial trust / importance prior
+#   cadence  daily (default) | weekly  -- weekly sources use a 7-day window
+#            and go to the "long reads" bucket instead of competing as news
+#   include  optional list of keywords; item kept only if title/summary matches one
+#   exclude  optional list of keywords; item dropped if its title contains one
+#   max_items optional cap per fetch
+#   original_link  link-blog feeds: use the first outbound link in the entry as the URL
+#   enabled  default true
+
+sources:
+  # ---------------- AI (overview level) ----------------
+  - name: techmeme
+    section: ai
+    kind: rss
+    url: https://www.techmeme.com/feed.xml
+    weight: 0.8
+    original_link: true
+    include: [" AI", "AI ", "OpenAI", "Anthropic", "Claude", "Gemini", "DeepMind", "LLM", "model", "chatbot", "Nvidia", "artificial intelligence", "GPT", "xAI", "Mistral", "data center"]
+  - name: gnews-ai
+    section: ai
+    kind: rss
+    url: "https://news.google.com/rss/search?q=%22artificial+intelligence%22+OR+OpenAI+OR+Anthropic+OR+%22Google+DeepMind%22+when:1d&hl=en-US&gl=US&ceid=US:en"
+    weight: 0.5
+    max_items: 60
+  - name: mit-tech-review-ai
+    section: ai
+    kind: rss
+    url: https://www.technologyreview.com/topic/artificial-intelligence/feed
+    weight: 0.7
+  - name: openai-news
+    section: ai
+    kind: rss
+    url: https://openai.com/news/rss.xml
+    weight: 0.7
+    max_items: 30
+  - name: deepmind-blog
+    section: ai
+    kind: rss
+    url: https://deepmind.google/blog/rss.xml
+    weight: 0.7
+    max_items: 30
+  - name: understanding-ai
+    section: ai
+    kind: rss
+    url: https://www.understandingai.org/feed
+    weight: 0.9
+    cadence: weekly
+  - name: one-useful-thing
+    section: ai
+    kind: rss
+    url: https://www.oneusefulthing.org/feed
+    weight: 0.9
+    cadence: weekly
+  - name: import-ai
+    section: ai
+    kind: rss
+    url: https://importai.substack.com/feed
+    weight: 0.8
+    cadence: weekly
+  - name: epoch-ai
+    section: ai
+    kind: rss
+    url: https://epochai.substack.com/feed
+    weight: 0.8
+    cadence: weekly
+
+  # ---------------- Science ----------------
+  - name: sciencedaily-top
+    section: science
+    kind: rss
+    url: https://www.sciencedaily.com/rss/top/science.xml
+    weight: 0.6
+  - name: phys-org
+    section: science
+    kind: rss
+    url: https://phys.org/rss-feed/
+    weight: 0.6
+    max_items: 40
+  - name: nature-news
+    section: science
+    kind: rss
+    url: https://www.nature.com/nature.rss
+    weight: 0.8
+    exclude: ["Correction", "Retraction", "Erratum", "Addendum"]
+  - name: science-news
+    section: science
+    kind: rss
+    url: https://www.science.org/rss/news_current.xml
+    weight: 0.8
+  - name: ars-science
+    section: science
+    kind: rss
+    url: https://feeds.arstechnica.com/arstechnica/science
+    weight: 0.7
+  - name: quanta
+    section: science
+    kind: rss
+    url: https://www.quantamagazine.org/feed/
+    weight: 0.9
+    cadence: weekly
+
+  # ---------------- Economy: Poland ----------------
+  - name: notes-from-poland
+    section: economy
+    kind: rss
+    url: https://notesfrompoland.com/feed/
+    weight: 0.7
+    include: ["econom", "inflation", "bank", "rate", "budget", "zloty", "złoty", "GDP", "wage", "tax", "market", "investment", "energy", "debt", "deficit", "NBP", "price"]
+  - name: bankier
+    section: economy
+    kind: rss
+    url: https://www.bankier.pl/rss/wiadomosci.xml
+    weight: 0.45
+    max_items: 40
+  - name: business-insider-pl
+    section: economy
+    kind: rss
+    url: https://businessinsider.com.pl/.feed
+    weight: 0.4
+    max_items: 40
+
+  # ---------------- Economy: EU ----------------
+  - name: ecb-press
+    section: economy
+    kind: rss
+    url: https://www.ecb.europa.eu/rss/press.xml
+    weight: 0.8
+
+  # ---------------- Economy: US / global ----------------
+  - name: fed-press
+    section: economy
+    kind: rss
+    url: https://www.federalreserve.gov/feeds/press_all.xml
+    weight: 0.8
+  - name: gnews-business
+    section: economy
+    kind: rss
+    url: "https://news.google.com/rss/headlines/section/topic/BUSINESS?hl=en-US&gl=US&ceid=US:en"
+    weight: 0.5
+    max_items: 60
+  - name: bbc-business
+    section: economy
+    kind: rss
+    url: https://feeds.bbci.co.uk/news/business/rss.xml
+    weight: 0.6
+  - name: guardian-business
+    section: economy
+    kind: guardian
+    query_section: business
+    weight: 0.7
+  - name: calculated-risk
+    section: economy
+    kind: rss
+    url: https://www.calculatedriskblog.com/feeds/posts/default
+    weight: 0.6
+  - name: apricitas
+    section: economy
+    kind: rss
+    url: https://www.apricitas.io/feed
+    weight: 0.8
+    cadence: weekly
+
+  # ---------------- World ----------------
+  - name: wikipedia-current-events
+    section: world
+    kind: wikipedia_current_events
+    weight: 0.8
+  - name: bbc-world
+    section: world
+    kind: rss
+    url: https://feeds.bbci.co.uk/news/world/rss.xml
+    weight: 0.6
+  - name: guardian-world
+    section: world
+    kind: guardian
+    query_section: world
+    weight: 0.6
+  - name: gnews-world
+    section: world
+    kind: rss
+    url: "https://news.google.com/rss/headlines/section/topic/WORLD?hl=en-US&gl=US&ceid=US:en"
+    weight: 0.5
+    max_items: 60

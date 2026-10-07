@@ -1,0 +1,10 @@
+[Unit]
+Description=Run mynews every morning
+
+[Timer]
+OnCalendar=*-*-* 06:00:00 Europe/Warsaw
+Persistent=true
+RandomizedDelaySec=5min
+
+[Install]
+WantedBy=timers.target

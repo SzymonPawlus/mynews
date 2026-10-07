@@ -1,0 +1,13 @@
+[Unit]
+Description=mynews daily briefing
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=%h/mynews
+Environment=TZ=Europe/Warsaw
+Environment=PATH=%h/.local/bin:/usr/local/bin:/usr/bin:/bin
+EnvironmentFile=%h/mynews/.env
+ExecStart=%h/.local/bin/uv run --frozen mynews run
+TimeoutStartSec=30min

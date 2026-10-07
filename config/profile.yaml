@@ -1,0 +1,36 @@
+# Who the digest is written for. Edit freely; it is passed verbatim to Claude.
+reader:
+  background: >
+    University student majoring in mathematics and computer science.
+    Comfortable with rigorous, precise language, proofs, probability, statistics,
+    algorithms and software. Basic academic physics. Lives in Poland.
+  expertise:
+    mathematics: expert        # never explain basic maths; use it freely in analogies
+    computer_science: expert   # skip CS basics
+    physics: intermediate      # explain specialised concepts briefly
+    ai_ml: introductory        # wants the big picture of AI progress, not developer detail
+    economics: novice          # explain mechanisms and terms; maths analogies welcome
+    finance_markets: novice
+    biology_medicine: novice
+    politics_world: general_reader
+  wants:
+    - Overview of AI progress (capabilities, major releases, policy, economics of AI) - not developer news
+    - Short general science news across fields
+    - Economy of Poland, EU, US and the global economy, with the background needed to understand it
+    - Major world events with enough context to follow them
+  avoid:
+    - Hype and marketing language
+    - Celebrity, sports, crime, and lifestyle stories
+    - Minor product updates, funding rounds under $1B, stock tips
+
+digest:
+  language: English
+  target_read_minutes: 10
+  # max items per section on weekdays
+  quotas:
+    ai: 4
+    economy: 4
+    science: 4
+    world: 3
+  long_reads: 2          # links to weekly newsletters / essays, one line each
+  candidates_per_section: 10  # ranked candidates per section Claude chooses from
