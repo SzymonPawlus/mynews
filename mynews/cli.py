@@ -159,6 +159,48 @@ def cmd_usage(args) -> int:
     return 0
 
 
+def cmd_serve(args) -> int:
+    from . import web
+    web.serve(port=args.port)
+    return 0
+
+
+def cmd_inbound(args) -> int:
+    from . import inbound
+    return inbound.main()
+
+
+def cmd_feedback(args) -> int:
+    from . import feedback
+    with connect() as conn:
+        if args.action == "comment":
+            feedback.record_comment(conn, " ".join(args.text), "cli")
+            print("noted; applied in the next run")
+            return 0
+        rows = conn.execute("SELECT * FROM feedback ORDER BY id DESC LIMIT ?", (args.n,)).fetchall()
+        for r in reversed(rows):
+            st = feedback.story(conn, r["date"], r["ref"])
+            what = r["text"] or r["concept"] or (st["headline"] if st else "")
+            mark = " " if r["processed"] else "*"
+            print(f"{mark} {r['at'][:16]} {r['channel']:5} {r['kind']:7} {r['date']} {what[:90]}")
+    return 0
+
+
+def cmd_notes(args) -> int:
+    from .db import now_iso
+    with connect() as conn:
+        if args.action == "add":
+            conn.execute("INSERT INTO notes (text, created_at) VALUES (?, ?)",
+                         (" ".join(args.args), now_iso()))
+        elif args.action == "rm":
+            for nid in args.args:
+                conn.execute("UPDATE notes SET active = 0 WHERE id = ?", (int(nid),))
+        else:
+            for r in conn.execute("SELECT * FROM notes WHERE active = 1 ORDER BY id"):
+                print(f"[{r['id']}] {r['text']}")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     load_env()
     p = argparse.ArgumentParser(prog="mynews")
@@ -198,6 +240,24 @@ def main(argv: list[str] | None = None) -> int:
     pu = sub.add_parser("usage", help="show recent LLM token usage")
     pu.add_argument("-n", type=int, default=20)
     pu.set_defaults(func=cmd_usage)
+
+    ps = sub.add_parser("serve", help="run the feedback web endpoint (behind a TLS proxy)")
+    ps.add_argument("--port", type=int)
+    ps.set_defaults(func=cmd_serve)
+
+    pin = sub.add_parser("inbound", help="read an email reply from stdin (Postfix pipe)")
+    pin.set_defaults(func=cmd_inbound)
+
+    pf = sub.add_parser("feedback", help="list feedback (* = not yet applied) or add a comment")
+    pf.add_argument("action", nargs="?", choices=["list", "comment"], default="list")
+    pf.add_argument("text", nargs="*")
+    pf.add_argument("-n", type=int, default=30)
+    pf.set_defaults(func=cmd_feedback)
+
+    pn = sub.add_parser("notes", help="standing preferences distilled from feedback")
+    pn.add_argument("action", nargs="?", choices=["list", "add", "rm"], default="list")
+    pn.add_argument("args", nargs="*")
+    pn.set_defaults(func=cmd_notes)
 
     args = p.parse_args(argv)
     return args.func(args)

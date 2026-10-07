@@ -16,6 +16,13 @@ Personalisation lives in `config/profile.yaml` and in two tables that grow over 
 - **concept ledger**: every background concept explained once is linked to the glossary afterwards instead of being explained again. Mark concepts as known and they disappear.
 - **story threads**: developing stories carry a rolling summary, so the digest can show *Previously / New today*.
 
+**Feedback** shapes later digests:
+
+- one-click links in the email: 👍/👎 on a story, "explain more tomorrow" (a deeper follow-up in the next issue), and "I knew this" on a concept;
+- or just **reply to the email** in your own words.
+
+Clicks are applied directly. Free-text replies go through one small Claude call at the start of the next run (only when there are new ones), which turns them into standing notes, concept updates and follow-ups. The next email opens with "Your feedback: …" saying what changed.
+
 On Sundays there's also a "week in AI" overview and an explainer on a concept that kept coming up.
 
 ## Commands
@@ -29,6 +36,10 @@ mynews run --sunday           # force the Sunday edition
 mynews render [DATE] --send   # re-render / resend a stored digest
 mynews concept list | show NAME | understood NAME | unlearn NAME | forget NAME
 mynews threads [--close SLUG]
+mynews feedback [list] | feedback comment TEXT   # * = not yet applied
+mynews notes [list | add TEXT | rm ID]          # standing preferences from feedback
+mynews serve                  # feedback endpoint for the email links (behind Caddy)
+mynews inbound < reply.eml    # what Postfix runs for each email reply
 mynews usage                  # token usage per LLM call
 ```
 
@@ -50,7 +61,8 @@ Full step-by-step guide: [DEPLOY.md](DEPLOY.md). Short version:
 ```
 git clone https://github.com/SzymonPawlus/mynews.git ~/mynews && cd ~/mynews && ./deploy/install.sh
 claude setup-token            # paste into .env as CLAUDE_CODE_OAUTH_TOKEN
-sudo ./deploy/mail-setup.sh news.<your-domain>   # send-only Postfix + DKIM, prints DNS records
+sudo ./deploy/mail-setup.sh news.<your-domain>   # Postfix + DKIM (send + receive replies), prints DNS records
+sudo ./deploy/web-setup.sh news.<your-domain>    # Caddy HTTPS for feedback links
 $EDITOR .env
 systemctl --user start mynews.service && journalctl --user -u mynews -f
 ```

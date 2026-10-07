@@ -2,14 +2,18 @@
 
 These steps are written so you can follow them by hand, or open Claude Code on the VPS and say: *"Follow DEPLOY.md"*. Steps marked **(human)** need you, because they involve secrets or an interactive login.
 
-Target setup: Linux VPS with systemd, the repo at `~/mynews`, and a **user** systemd timer that runs the digest every day at 06:00 Europe/Warsaw. No root daemon and no mail server are needed.
+Target setup: Linux VPS with systemd and the repo at `~/mynews`, with these pieces:
+
+- a **user** systemd timer that runs the digest every day at 06:00 Europe/Warsaw;
+- a small Postfix for sending the digest and receiving your replies;
+- Caddy for HTTPS on the one-click feedback links, backed by a user service on localhost.
 
 ## 0. Prerequisites
 
 - A regular (non-root) user account with `git` and `curl` installed.
 - Outbound HTTPS (port 443) for news sources and the Claude API.
 - A Claude Pro/Max subscription.
-- A domain whose DNS you control, and outbound port 25 allowed by the VPS provider.
+- A domain whose DNS you control. The VPS provider must allow port 25 (outbound for sending, inbound for replies); ports 80/443 must be open inbound for HTTPS.
 - Debian/Ubuntu (for `mail-setup.sh`; the rest works on any systemd Linux).
 
 ## 1. Clone and install
@@ -25,7 +29,8 @@ cd ~/mynews
 - installs `uv` and Claude Code into `~/.local/bin` if they're missing;
 - runs `uv sync --frozen` (uv downloads a suitable Python if needed);
 - creates `.env` from `deploy/.env.example` with mode 600;
-- installs and enables `mynews.timer` as a user unit;
+- generates `MYNEWS_FEEDBACK_SECRET` (signs the feedback links);
+- installs and enables `mynews.timer` and `mynews-web.service` as user units;
 - enables lingering, so the timer runs without you being logged in. This may ask for sudo.
 
 ## 2. Claude token **(human)**
@@ -42,9 +47,9 @@ CLAUDE_CODE_OAUTH_TOKEN=<token>
 
 If Claude Code is driving this setup, run the command yourself in the session with `! claude setup-token`. Never paste the token into chat.
 
-## 3. Email: own send-only mail server
+## 3. Email: own small mail server
 
-mynews sends through a local Postfix that listens only on localhost and signs mail with DKIM. It sends from a dedicated **subdomain** (e.g. `news.example.pl`), so the root domain's existing mail setup (MX/SPF at the registrar) is not touched. If Claude Code is running this, ask the user which sending subdomain and recipient address to use.
+mynews sends through a local Postfix that signs mail with DKIM. Postfix also accepts replies to `mynews@<subdomain>`, and only that address. It accepts them only from `MAIL_TO`, with a valid DKIM signature, and pipes them into `mynews inbound` as your feedback. Use `--send-only` to skip receiving. It sends from a dedicated **subdomain** (e.g. `news.example.pl`), so the root domain's existing mail setup (MX/SPF at the registrar) is not touched. If Claude Code is running this, ask the user which sending subdomain and recipient address to use.
 
 1. Install and configure Postfix and OpenDKIM (Debian/Ubuntu):
 
@@ -52,10 +57,11 @@ mynews sends through a local Postfix that listens only on localhost and signs ma
    sudo ./deploy/mail-setup.sh news.example.pl
    ```
 
-   The script is idempotent. It checks whether outbound port 25 is reachable and prints the exact DNS records to add, including the DKIM public key.
+   Run it with `sudo` from your normal user (not a root shell): replies are delivered to that user through `~/.forward`. The script is idempotent. It checks whether outbound port 25 is reachable and prints the exact DNS records to add, including the DKIM public key.
 
 2. **(human)** Add the printed records in the DNS zone of the parent domain (OVH: *Web Cloud → Domain names → DNS zone → Add an entry*):
    - `A` record: `news` → VPS IPv4
+   - `MX` record: `news` → priority 10, target `news.example.pl.` (for replies)
    - `TXT` record: `news` → `v=spf1 ip4:<VPS IP> -all`
    - `TXT` record: `mynews._domainkey.news` → `v=DKIM1;h=sha256;k=rsa;p=…`
    - `TXT` record: `_dmarc.news` → `v=DMARC1; p=none; adkim=s; aspf=s`
@@ -83,11 +89,34 @@ mynews sends through a local Postfix that listens only on localhost and signs ma
 
 The first messages may land in spam: mark them "Not spam" a couple of times. In Gmail, open *Show original* and confirm **SPF, DKIM and DMARC: PASS**. After a week of clean delivery you can tighten DMARC to `p=quarantine`.
 
+## 4. Feedback links: HTTPS endpoint
+
+Every story in the email has *👍 more like this · 👎 less like this · 🔍 explain more tomorrow* links, and every explained concept has *✓ I knew this*. The links point at a tiny endpoint (`mynews serve`, on localhost) behind Caddy, which gets a Let's Encrypt certificate automatically.
+
+```bash
+sudo ./deploy/web-setup.sh news.example.pl
+```
+
+Then set the following in `.env` and start the service:
+
+```
+MYNEWS_PUBLIC_URL=https://news.example.pl
+```
+
+```bash
+systemctl --user restart mynews-web.service
+curl https://news.example.pl/health          # → ok
+```
+
+The links carry an HMAC signature, so nobody can forge feedback, and no login is needed. Clicking a link records the action and shows a small page with *Undo* and an optional comment box.
+
+## 5. Other options
+
 Optional: get a free Guardian API key (https://open-platform.theguardian.com/access/) and set it as `GUARDIAN_API_KEY` to enable the Guardian business/world sources.
 
 (Alternative: any authenticated SMTP relay works instead of Postfix, e.g. a Gmail app password. See the comments in `deploy/.env.example`.)
 
-## 4. Verify
+## 6. Verify
 
 Run these from `~/mynews` in order. Each should succeed before you go on.
 
@@ -105,6 +134,10 @@ uv run mynews usage            # expect 2 calls: select + write
 
 # email delivery: resend the digest just built
 uv run mynews render --send
+
+# feedback: click a 👍 link in that email, and reply to it with a sentence, then
+uv run mynews feedback list    # both listed, marked * (not yet applied)
+# the next run applies them, and its email opens with "Your feedback: ..."
 ```
 
 Then test the real service exactly as the timer will run it:
@@ -118,7 +151,7 @@ systemctl --user list-timers mynews.timer
 **Note:** the test runs above count as today's digest, and their stories are marked as used. If you want a clean start, reset the ledger before the first scheduled run:
 
 ```bash
-sqlite3 data/mynews.sqlite "DELETE FROM digests; DELETE FROM used_items; DELETE FROM concepts; DELETE FROM threads;"
+sqlite3 data/mynews.sqlite "DELETE FROM digests; DELETE FROM used_items; DELETE FROM concepts; DELETE FROM threads; DELETE FROM feedback; DELETE FROM notes;"
 ```
 
 (or `rm data/mynews.sqlite`; it's recreated on the next run).
@@ -133,6 +166,9 @@ sqlite3 data/mynews.sqlite "DELETE FROM digests; DELETE FROM used_items; DELETE 
 | Gmail rejects: "not authenticated" / "PTR" | The PTR record must equal the sending subdomain, and the A record must point back to the same IP. Check SPF/DKIM with `opendkim-testkey`. |
 | DKIM "none" in Show original | `systemctl status opendkim`, `ss -ltn \| grep 8891`; re-run `mail-setup.sh`. |
 | Lands in spam | Normal for a new sender. Mark "Not spam", keep sending daily; confirm all three checks PASS. |
+| Feedback link says "invalid" | `MYNEWS_FEEDBACK_SECRET` changed since that email was sent, or `mynews-web` wasn't restarted after editing `.env`. |
+| Feedback link doesn't load | `systemctl --user status mynews-web`, `curl localhost:8787/health`, `sudo journalctl -u caddy -n 50` (certificate issues need ports 80/443 open). |
+| Reply not in `mynews feedback list` | `sudo journalctl -u postfix -n 50`. "dropped: sender not allowed" means the reply came from an address that isn't `MAIL_TO` (add it to `MYNEWS_FEEDBACK_FROM`). "no DKIM pass" means OpenDKIM isn't verifying (`Mode sv` in `/etc/opendkim.conf`). Check the MX record with `getent ahosts` / an online MX lookup. |
 | Timer doesn't fire after logout | `loginctl show-user $USER -p Linger` must say `Linger=yes`. |
 | Wrong send time | The timer uses `Europe/Warsaw` explicitly; check with `systemctl --user list-timers`. |
 | A run failed | Failures are emailed with the traceback. You can also run `journalctl --user -u mynews`. |
@@ -141,7 +177,8 @@ sqlite3 data/mynews.sqlite "DELETE FROM digests; DELETE FROM used_items; DELETE 
 
 ```bash
 cd ~/mynews && git pull && uv sync --frozen
-cp deploy/mynews.service deploy/mynews.timer ~/.config/systemd/user/ && systemctl --user daemon-reload
+cp deploy/mynews.service deploy/mynews.timer deploy/mynews-web.service ~/.config/systemd/user/
+systemctl --user daemon-reload && systemctl --user restart mynews-web.service
 ```
 
 `config/profile.yaml` and `config/sources.yaml` are tracked in git. Edit them on the VPS (or commit changes and pull); the next run picks them up.

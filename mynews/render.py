@@ -7,6 +7,7 @@ from datetime import date
 
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 
+from . import feedback
 from .config import TEMPLATES_DIR
 
 
@@ -27,11 +28,19 @@ def date_long(d: dict) -> str:
 
 
 def html(d: dict) -> str:
-    return _env().get_template("email.html.j2").render(d=d, date_long=date_long(d))
+    def fb(ref: str, action: str, concept: str = "") -> str:
+        return feedback.link(d["date"], ref, action, concept)
+
+    return _env().get_template("email.html.j2").render(
+        d=d, date_long=date_long(d), fb=fb, fb_on=feedback.links_enabled())
 
 
 def markdown(d: dict) -> str:
     out = [f"# Daily briefing — {date_long(d)}", "", d["intro"], ""]
+    if d.get("feedback_ack"):
+        out += ["*Your feedback:* " + " ".join(d["feedback_ack"]), ""]
+    for f in d.get("follow_ups", []):
+        out += [f"## Follow-up: {f['title']}", "", f["body"], ""]
     if d.get("explainer"):
         e = d["explainer"]
         out += [f"## Sunday explainer: {e['title']}", "", e["body"], ""]
@@ -56,4 +65,6 @@ def markdown(d: dict) -> str:
     if d["glossary"]:
         out += ["## Glossary", ""]
         out += [f"- **{k}** — {v}" for k, v in d["glossary"].items()]
+        out.append("")
+    out.append("Feedback: reply to this email in your own words; it is applied in the next briefing.")
     return "\n".join(out) + "\n"

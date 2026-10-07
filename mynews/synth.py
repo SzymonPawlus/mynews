@@ -12,7 +12,7 @@ from urllib.parse import urlsplit
 import yaml
 from pydantic import BaseModel, Field
 
-from . import enrich
+from . import enrich, feedback
 from .config import PROMPTS_DIR, SECTIONS, SECTION_TITLES, load_profile, load_sources
 from .db import now_iso
 from .llm import LLMBackend, LLMError
@@ -71,8 +71,15 @@ class Explainer(BaseModel):
     body: str
 
 
+class FollowUp(BaseModel):
+    key: str = Field(description="the DATE:REF key of the requested follow-up")
+    title: str
+    body: str
+
+
 class Digest(BaseModel):
     intro: str
+    follow_ups: list[FollowUp]
     stories: list[Story]
     long_reads: list[LongRead]
     week_in_ai: str | None
@@ -124,11 +131,14 @@ def _call(llm: LLMBackend, model_cls: type[BaseModel], *, system: str, user: str
 
 # ---------------------------------------------------------------- stage 1: select
 
-def select(llm: LLMBackend, profile: dict, ranking, model: str) -> tuple[list[tuple[Cluster, str]], list[Item]]:
+def select(llm: LLMBackend, profile: dict, ranking, model: str,
+           reader_feedback: str = "") -> tuple[list[tuple[Cluster, str]], list[Item]]:
     quotas = profile["digest"]["quotas"]
     by_id: dict[str, Cluster] = {}
     lines = ["Quotas (max stories): " + ", ".join(f"{s} {quotas[s]}" for s in SECTIONS),
              f"Long reads: up to {profile['digest']['long_reads']}", ""]
+    if reader_feedback:
+        lines += ["## Reader feedback (use it to judge what this reader wants)", reader_feedback, ""]
     for sec in SECTIONS:
         lines.append(f"## Section: {sec}")
         for n, c in enumerate(ranking.sections[sec], 1):
@@ -189,7 +199,8 @@ def _explainer_concept(conn: sqlite3.Connection, today: date) -> str | None:
 # ---------------------------------------------------------------- stage 2: write
 
 def write(llm: LLMBackend, conn: sqlite3.Connection, profile: dict, picks, long_reads,
-          today: date, sunday: bool, model: str) -> tuple[Digest, dict]:
+          today: date, sunday: bool, model: str,
+          pending: feedback.Pending | None = None) -> tuple[Digest, dict]:
     now = datetime.now(timezone.utc)
     bodies = enrich.enrich_clusters(conn, [c for c, _ in picks], STORY_WORDS)
     lr_words = SUNDAY_LONG_READ_WORDS if sunday else LONG_READ_WORDS
@@ -206,8 +217,20 @@ def write(llm: LLMBackend, conn: sqlite3.Connection, profile: dict, picks, long_
     L.append(", ".join(explained) or "(none)")
     L.append("## Open threads")
     L += [f"- {t['slug']}: {t['title']} — {t['summary']}" for t in threads] or ["(none)"]
+    notes = feedback.notes_text(conn)
+    if notes:
+        L.append("## Reader's standing preferences (from their feedback)")
+        L.append(notes)
     if sunday:
         L.append(f"## Sunday explainer concept: {explainer or 'choose the most useful concept from this week'}")
+    if pending and pending.follow_ups:
+        L.append("\n## Follow-ups requested by the reader")
+        for fu in pending.follow_ups:
+            L.append(f"### [{fu['key']}] {fu['headline']}")
+            L.append(f"Previously told: {fu['what_happened']}")
+            if fu["text"]:
+                L.append(f"Source text:\n{fu['text']}")
+            L.append("")
     L.append("\n## Stories")
     story_ids: dict[str, tuple[Cluster, str]] = {}
     for n, ((c, sec), body) in enumerate(zip(picks, bodies), 1):
@@ -237,13 +260,15 @@ def write(llm: LLMBackend, conn: sqlite3.Connection, profile: dict, picks, long_
 
 # ---------------------------------------------------------------- persist + assemble
 
-def persist(conn: sqlite3.Connection, digest: Digest, ctx: dict, today: date) -> dict:
+def persist(conn: sqlite3.Connection, digest: Digest, ctx: dict, today: date,
+            pending: feedback.Pending | None = None) -> dict:
     """Update ledger/threads/used items and return the render-ready digest dict."""
     ts = now_iso()
     day = today.isoformat()
     old_threads = ctx["threads"]
     stories_out = {s: [] for s in SECTIONS}
     glossary: dict[str, str] = {}
+    ref = 0
 
     for st in digest.stories:
         if st.id not in ctx["story_ids"]:
@@ -282,7 +307,10 @@ def persist(conn: sqlite3.Connection, digest: Digest, ctx: dict, today: date) ->
             if it.url not in seen_urls:
                 seen_urls.add(it.url)
                 links.append({"source": _publisher(it), "title": it.title, "url": it.url})
+        ref += 1
         stories_out[sec].append({
+            "ref": str(ref), "section": sec,
+            "item_ids": [i.id for i in sorted(cluster.items, key=lambda i: -i.weight)],
             "headline": st.headline, "what_happened": st.what_happened,
             "why_it_matters": st.why_it_matters,
             "background": [b.model_dump() for b in st.background],
@@ -304,9 +332,13 @@ def persist(conn: sqlite3.Connection, digest: Digest, ctx: dict, today: date) ->
     explainer = digest.explainer.model_dump() if digest.explainer else None
     if explainer:
         explainer["body"] = _strip_heading(explainer["body"])
+    requested = {fu["key"] for fu in pending.follow_ups} if pending else set()
     out = {
         "date": day,
         "intro": digest.intro,
+        "feedback_ack": pending.ack if pending else [],
+        "follow_ups": [{"title": f.title, "body": _strip_heading(f.body)}
+                       for f in digest.follow_ups if f.key in requested],
         "sections": [{"key": s, "title": SECTION_TITLES[s], "stories": stories_out[s]}
                      for s in SECTIONS if stories_out[s]],
         "long_reads": long_reads,
@@ -329,8 +361,14 @@ def build(conn: sqlite3.Connection, llm: LLMBackend, today: date | None = None,
                    profile["digest"]["long_reads"])
     model_select = os.environ.get("MYNEWS_MODEL_SELECT", "sonnet")
     model_write = os.environ.get("MYNEWS_MODEL_WRITE", "sonnet")
-    picks, long_reads = select(llm, profile, ranking, model_select)
+    pending = feedback.gather(conn, llm, model_select)
+    notes = feedback.notes_text(conn)
+    parts = [f"Standing notes:\n{notes}" if notes else "", feedback.ratings_text(conn, today)]
+    reader_feedback = "\n".join(p for p in parts if p)
+    picks, long_reads = select(llm, profile, ranking, model_select, reader_feedback)
     if not picks:
         raise LLMError("selection returned no stories")
-    digest, ctx = write(llm, conn, profile, picks, long_reads, today, sunday, model_write)
-    return persist(conn, digest, ctx, today)
+    digest, ctx = write(llm, conn, profile, picks, long_reads, today, sunday, model_write, pending)
+    out = persist(conn, digest, ctx, today, pending)
+    feedback.mark_processed(conn, pending)
+    return out

@@ -14,4 +14,5 @@ Pick the stories this reader should know about today:
 - Never pick two candidates that cover the same story.
 - Candidates marked "headline only" have no article text available, so they can only get a two-line mention. Prefer candidates with text unless a headline-only story is clearly important.
 - A candidate may be filed under the wrong section; you may assign it to the section where it fits best.
+- If reader feedback is given (standing notes, liked/disliked stories), weigh it heavily: prefer topics like the liked ones, avoid topics like the disliked ones, and follow standing notes.
 - Also pick the long reads (essays from weekly newsletters) worth the reader's time, up to the given number, or none.

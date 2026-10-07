@@ -51,6 +51,27 @@ CREATE TABLE IF NOT EXISTS threads (
     updated_at TEXT NOT NULL
 );
 
+-- reader feedback: clicks from email links, comments from replies / web form / CLI
+CREATE TABLE IF NOT EXISTS feedback (
+    id        INTEGER PRIMARY KEY,
+    at        TEXT NOT NULL,
+    date      TEXT NOT NULL DEFAULT '',  -- digest date the feedback refers to
+    ref       TEXT NOT NULL DEFAULT '',  -- story ref within that digest
+    kind      TEXT NOT NULL,             -- up | down | more | got | comment
+    concept   TEXT NOT NULL DEFAULT '',
+    text      TEXT NOT NULL DEFAULT '',
+    channel   TEXT NOT NULL,             -- web | email | cli
+    processed INTEGER NOT NULL DEFAULT 0
+);
+
+-- standing preferences distilled from comments, passed to every prompt
+CREATE TABLE IF NOT EXISTS notes (
+    id         INTEGER PRIMARY KEY,
+    text       TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    active     INTEGER NOT NULL DEFAULT 1
+);
+
 CREATE TABLE IF NOT EXISTS source_runs (
     source  TEXT NOT NULL,
     ran_at  TEXT NOT NULL,
